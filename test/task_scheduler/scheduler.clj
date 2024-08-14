@@ -16,3 +16,18 @@
           (Thread/sleep 500)
           (wait-fn)
           (= @data (map second timeout-uuid-pairs))))))
+
+(deftest interval-scheduler
+  (let [{:keys [stop-fn schedule-interval-fn]} (scheduler/create-scheduler)
+        data (atom [])]
+    (a/go (schedule-interval-fn #(swap! data conj ::foo) 100))
+    (Thread/sleep 250)
+    (stop-fn)
+    (is (= @data [::foo ::foo])))
+
+  (let [{:keys [wait-fn schedule-interval-fn]} (scheduler/create-scheduler)
+        data (atom [])]
+    (a/go (schedule-interval-fn #(swap! data conj ::foo) 100))
+    (Thread/sleep 250)
+    (wait-fn)
+    (is (= @data [::foo ::foo ::foo]))))
