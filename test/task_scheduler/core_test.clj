@@ -2,7 +2,8 @@
   (:require [clojure.test :refer :all]))
 
 (defn -main [& _]
-  (let [test-nss '[task-scheduler.priority-queue]]
+  (let [test-nss '[task-scheduler.priority-queue
+                   task-scheduler.scheduler]]
     (doseq [test-ns test-nss]
       (require test-ns))
     (apply run-tests test-nss)))
