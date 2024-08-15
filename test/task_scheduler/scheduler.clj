@@ -11,11 +11,10 @@
                                       (map #(* 100 %))
                                       (map #(vector % (random-uuid))))]
           (doseq [[timeout uuid] (shuffle timeout-uuid-pairs)]
-            (a/go (schedule-fn uuid #(swap! data conj uuid) timeout)))
-          ; wait for everything to be scheduled
-          (Thread/sleep 500)
+            (schedule-fn uuid #(swap! data conj uuid) timeout))
           (wait-fn)
-          (= @data (map second timeout-uuid-pairs))))))
+          (= (map second timeout-uuid-pairs)
+             @data)))))
 
 (deftest interval-scheduler
   (let [{:keys [stop-fn schedule-interval-fn]} (scheduler/create-scheduler)
