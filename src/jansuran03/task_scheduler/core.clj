@@ -13,8 +13,10 @@
       - @return: a promise indicating, whether the scheduling succeeded (the task wasn't there yet) or not
   - :schedule-interval-fn - a function of [id f interval] same as with :schedule-fn
       - except the function is rescheduled after the interval in a loop
+  - :cancel-schedule-fn - a function of [id] that cancels a scheduled task
+      - @return: a promise indicating, whether the cancellation succeeded, or not
   - :wait-fn - a zero-argument function which blocks the current thread until the task queue is processed
-             - disables interval schedules, but waits for the pending ones to finish
+      - disables interval schedules, but waits for the pending ones to finish
   - :stop-fn - a zero-argument function which stops the scheduler's job, no matter what's currently planned
 
   TODO: :wait-fn actually waits for all the jobs to start being executed, not for them to finish"
@@ -49,6 +51,15 @@
                                    (do (reset! task-queue new-task-queue)
                                        (deliver (:promise task) true))
                                    (deliver (:promise task) false)))
+        cancel-schedule-fn (fn [id]
+                             (let [p (promise)]
+                               (a/put! signal-channel [::cancel [id p]])
+                               p))
+        cancel-schedule-impl (fn [[id p]]
+                               (if-let [[new-task-queue _] (pq/remove-by-id @task-queue id)]
+                                 (do (reset! task-queue new-task-queue)
+                                     (deliver p true))
+                                 (deliver p false)))
         run-task (fn run-task []
                    (let [[new-queue {:keys [f] :as task}] (pq/extract-min @task-queue)]
                      (a/go (f))
@@ -71,7 +82,9 @@
                       ::schedule (do (schedule-impl data)
                                      (recur))
                       ::schedule-interval (do (schedule-interval-impl data)
-                                              (recur)))))
+                                              (recur))
+                      ::cancel (do (cancel-schedule-impl data)
+                                   (recur)))))
                 (let [delay-millis (- (:scheduled-at (pq/get-min @task-queue))
                                       (System/currentTimeMillis))]
                   (if (> delay-millis 0)
@@ -87,7 +100,9 @@
                           ::schedule (do (schedule-impl data)
                                          (recur))
                           ::schedule-interval (do (schedule-interval-impl data)
-                                                  (recur)))))
+                                                  (recur))
+                          ::cancel (do (cancel-schedule-impl data)
+                                       (recur)))))
                     (do (run-task)
                         (recur))))))
             (finally
@@ -95,4 +110,5 @@
     {:stop-fn              stop-fn
      :schedule-fn          schedule-fn
      :schedule-interval-fn schedule-interval-fn
-     :wait-fn              wait-fn}))
+     :wait-fn              wait-fn
+     :cancel-schedule-fn   cancel-schedule-fn}))

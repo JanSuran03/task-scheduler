@@ -64,3 +64,13 @@
     (stop-fn)
     (is (= @results [true true false false]))
     (is (= @data [700 1000 700 1000 700 700]))))
+
+(deftest cancel-schedule
+  (let [p (promise)
+        {:keys [cancel-schedule-fn schedule-fn stop-fn]} (scheduler/create-scheduler)
+        _ (schedule-fn 42 #(deliver p 42) 42)
+        results [@(cancel-schedule-fn 42)
+                 @(cancel-schedule-fn 42)]]
+    (is (= results [true false]))
+    (is (= (deref p 100 ::none) ::none))
+    (stop-fn)))
