@@ -11,7 +11,7 @@
                                       (map #(* 100 %))
                                       (map #(vector % (random-uuid))))]
           (doseq [[timeout uuid] (shuffle timeout-uuid-pairs)]
-            (a/go (schedule-fn #(swap! data conj uuid) timeout)))
+            (a/go (schedule-fn uuid #(swap! data conj uuid) timeout)))
           ; wait for everything to be scheduled
           (Thread/sleep 500)
           (wait-fn)
@@ -20,14 +20,47 @@
 (deftest interval-scheduler
   (let [{:keys [stop-fn schedule-interval-fn]} (scheduler/create-scheduler)
         data (atom [])]
-    (a/go (schedule-interval-fn #(swap! data conj ::foo) 100))
+    (a/go (schedule-interval-fn (System/nanoTime) #(swap! data conj ::foo) 100))
     (Thread/sleep 250)
     (stop-fn)
     (is (= @data [::foo ::foo])))
 
   (let [{:keys [wait-fn schedule-interval-fn]} (scheduler/create-scheduler)
         data (atom [])]
-    (a/go (schedule-interval-fn #(swap! data conj ::foo) 100))
+    (a/go (schedule-interval-fn (System/nanoTime) #(swap! data conj ::foo) 100))
     (Thread/sleep 250)
     (wait-fn)
     (is (= @data [::foo ::foo ::foo]))))
+
+(deftest schedule-result
+  (let [{:keys [wait-fn schedule-fn]} (scheduler/create-scheduler)
+        data (atom [])
+        results (atom [])
+        schedule-1000 (fn [] (swap! results conj @(schedule-fn :id-1000 #(swap! data conj 1000) 1000)))
+        schedule-500 (fn [] (swap! results conj @(schedule-fn :id-500 #(swap! data conj 500) 500)))]
+    (schedule-1000)
+    (schedule-500)
+    (schedule-1000)
+    (schedule-500)
+    (Thread/sleep 1100)
+    (schedule-1000)
+    (schedule-500)
+    (schedule-1000)
+    (schedule-500)
+    (wait-fn)
+    (is (= @data [500 1000 500 1000]))
+    (is (= @results [true true false false true true false false])))
+
+  (let [{:keys [stop-fn schedule-interval-fn]} (scheduler/create-scheduler)
+        data (atom [])
+        results (atom [])
+        schedule-1000 (fn [] (swap! results conj @(schedule-interval-fn :id-1000 #(swap! data conj 1000) 1000)))
+        schedule-500 (fn [] (swap! results conj @(schedule-interval-fn :id-700 #(swap! data conj 700) 700)))]
+    (schedule-1000)
+    (schedule-500)
+    (schedule-1000)
+    (schedule-500)
+    (Thread/sleep 2900)
+    (stop-fn)
+    (is (= @results [true true false false]))
+    (is (= @data [700 1000 700 1000 700 700]))))
