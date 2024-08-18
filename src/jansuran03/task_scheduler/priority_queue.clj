@@ -15,15 +15,27 @@
     "Extract an element `x` from the queue for which (not (lt y x)) is true for each
     other element `y` in the queue. Returns a pair of [new-priority-queue extracted-min].
 
-    Works in Θ(log(n)).")
+    Works in O(log(n)).")
   (insert [queue x]
     "Inserts a new element to the priority queue, keeping the heap ordering.
 
-    Works in Θ(log(n))")
+    Works in O(log(n))")
   (find-by-id [queue id]
-    "Finds an element by its id.")
+    "Finds an element by its id.
+
+    Works in Θ(1).")
   (remove-by-id [queue id]
-    "Removes an element by its id. Returns a pair of [new-priority-queue removed-element].")
+    "Removes an element by its id. Returns a pair of [new-priority-queue removed-element].
+
+    Works in O(log(n)).")
+  (update-by-id [queue id f]
+    "Updates an element by its id by applying function `f` to it.
+    Returns a new priority queue fix fixed ordering, or nil if the element is not present.
+
+    Do not affect the output of the id-fn on this element by this change, the priority queue
+    is not responsible for fixing that!
+
+    Works in O(log(n)).")
   (queue-empty? [queue]
     "Returns true iff the queue is empty."))
 
@@ -65,6 +77,23 @@
                    (assoc! id->index cur-id parent-index, parent-id cur-index)))
           [(persistent! queue) (persistent! id->index)])))))
 
+(defn- ^:no-doc fix-structure [[queue id->index lt id-fn :as pq-vec] index]
+  (let [size (dec (count queue))
+        elem (queue index)
+        i-parent (bit-shift-right index 1)
+        i-left-child (bit-shift-left index 1)
+        i-right-child (inc i-left-child)
+        [queue id->index] (cond (and (> index 1) (lt elem (queue i-parent)))
+                                (bubble-up pq-vec index)
+
+                                (or (and (<= i-left-child size) (lt (queue i-left-child) elem))
+                                    (and (<= i-right-child size) (lt (queue i-right-child) elem)))
+                                (bubble-down pq-vec index)
+
+                                :else
+                                [queue id->index])]
+    [queue id->index]))
+
 (defrecord PriorityQueue [queue id->index lt-cmp id-fn]
   IPriorityQueue
   (get-min [this]
@@ -99,27 +128,14 @@
       (if (= index (dec (count queue)))
         [(PriorityQueue. (pop queue) (dissoc id->index id) lt-cmp id-fn) (peek queue)]
         (let [elem (queue index)
-              size (dec (count queue))
-              i-parent (bit-shift-right index 1)
-              i-child-L (bit-shift-left index 1)
-              i-child-R (inc i-child-L)
-              [queue id->index] (if (= index size)
-                                  [(pop queue)
-                                   (dissoc id->index id)]
-                                  [(-> queue (assoc index (peek queue)) pop)
-                                   (-> id->index (dissoc id) (assoc (id-fn (peek queue)) index))])
-              [queue id->index] (cond (or (>= i-child-L size)
-                                          (and (> index 1)
-                                               (lt-cmp (queue index) (queue i-parent))))
-                                      (bubble-up [queue id->index lt-cmp id-fn] index)
-
-                                      (or (lt-cmp (queue i-child-L) (queue index))
-                                          (and (< i-child-R size)
-                                               (lt-cmp (queue i-child-R) (queue index))))
-                                      (bubble-down [queue id->index lt-cmp id-fn] index)
-
-                                      :else [queue id->index])]
+              [queue id->index] [(-> queue (assoc index (peek queue)) pop)
+                                 (-> id->index (dissoc id) (assoc (id-fn (peek queue)) index))]
+              [queue id->index] (fix-structure [queue id->index lt-cmp id-fn] index)]
           [(PriorityQueue. queue id->index lt-cmp id-fn) elem]))))
+  (update-by-id [this id f]
+    (when-let [index (id->index id)]
+      (let [[queue id->index] (fix-structure [(update queue index f) id->index lt-cmp id-fn] index)]
+        (PriorityQueue. queue id->index lt-cmp id-fn))))
   (queue-empty? [this]
     (<= (count queue) 1)))
 

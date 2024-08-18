@@ -3,24 +3,34 @@
             [jansuran03.task-scheduler.priority-queue :as pq]
             [jansuran03.task-scheduler.util :as util]))
 
+(defprotocol IScheduler
+  (wait-for-tasks [this]
+    "Waits for the last task to start being executed (TODO: complete?), blocks the current thread until then.
+    Prevents interval tasks from rescheduling.")
+  (stop [this]
+    "Stops all currently scheduled tasks immediately (does not cancel any currently being executed).")
+  (schedule [this id f timeout-millis]
+    "Schedules a task (function `f` of 0 arguments) for execution after given millisecond timeout.
+    If a scheduled task with this ID already exists, replaces it with this one.")
+  (schedule-new [this id f timeout-millis]
+    "Schedules a task (function `f` of 0 arguments) for execution after given millisecond timeout.
+    Returns a promise indicating, whether the operation succeeded.
+    If a task with this ID is already scheduled, delivers false to the promise,
+    otherwise delivers true and schedules the task.")
+  (schedule-interval [this id f interval-millis]
+    "Schedules a task (function `f` of 0 arguments) for execution after given millisecond timeout,
+    after starting the execution, the task is rescheduled again.")
+  (schedule-new-interval [this id f interval-millis]
+    "Schedules a task (function `f` of 0 arguments) for execution after given millisecond timeout,
+    after starting the execution, the task is rescheduled again.
+    Returns a promise indicating, whether the operation succeeded.
+    If a task with this ID is already scheduled, delivers false to the promise,
+    otherwise delivers true and schedules the task.")
+  (cancel-schedule [this id]
+    "Cancels a scheduled task. Returns a promise indicating, whether the task was canceled successfully."))
+
 (defn create-scheduler
-  "Creates an asynchronous scheduler.
-
-  Returns a map of
-  - :schedule-fn - a function of [id f timeout], where
-      - `id` is the task id, ideally a keyword/number
-      - `f` is a function of 0 arguments that will be called after
-      - `timeout` milliseconds
-      - @return: a promise indicating, whether the scheduling succeeded (the task wasn't there yet) or not
-  - :schedule-interval-fn - a function of [id f interval] same as with :schedule-fn
-      - except the function is rescheduled after the interval in a loop
-  - :cancel-schedule-fn - a function of [id] that cancels a scheduled task
-      - @return: a promise indicating, whether the cancellation succeeded, or not
-  - :wait-fn - a zero-argument function which blocks the current thread until the task queue is processed
-      - disables interval schedules, but waits for the pending ones to finish
-  - :stop-fn - a zero-argument function which stops the scheduler's job, no matter what's currently planned
-
-  TODO: :wait-fn actually waits for all the jobs to start being executed, not for them to finish"
+  "Creates an asynchronous scheduler, returning an object implementing the ISchedulerInterface."
   []
   (with-local-vars [hierarchy (make-hierarchy)]
     (let [task-queue (atom (pq/create #(< (:scheduled-at %1) (:scheduled-at %2)) :id))
@@ -31,25 +41,12 @@
                             p))
           wait-channel (a/chan 1)
           wait-requested? (atom nil)
-          stop-fn (fn stop-fn []
-                    (a/put! signal-channel [::stop]))
-          wait-fn (fn wait-fn []
-                    (do (a/put! signal-channel [::wait])
-                        (a/<!! wait-channel)))
-          schedule-fn (fn schedule-task-fn [id f timeout]
-                        (promising-put ::schedule {:f f :timeout timeout :id id}))
-          schedule-interval-fn (fn schedule-interval-fn [id f interval]
-                                 (promising-put ::schedule-interval {:f f :interval interval :id id}))
-          cancel-schedule-fn (fn [id]
-                               (let [p (promise)]
-                                 (a/put! signal-channel [::cancel [id p]])
-                                 p))
           run-task (fn run-task []
                      (let [[new-queue {:keys [f] :as task}] (pq/extract-min @task-queue)]
                        (a/go (f))
                        (reset! task-queue new-queue)
                        (when (and (:interval? task) (not @wait-requested?))
-                         (a/go (a/put! signal-channel [::schedule-interval task])))))
+                         (a/put! signal-channel [::schedule-interval task]))))
           close-chans! (fn close-chans! []
                          (a/close! signal-channel)
                          (a/close! wait-channel))
@@ -60,20 +57,34 @@
       (defmethod signal-handler ::wait [_]
         (reset! wait-requested? true))
 
-      (defmethod signal-handler ::schedule [[_ task]]
+      (defmethod signal-handler ::schedule-new [[_ task]]
         (if-let [new-task-queue (pq/insert @task-queue (assoc task :scheduled-at (+ (System/currentTimeMillis)
                                                                                     (:timeout task))))]
           (do (reset! task-queue new-task-queue)
               (deliver (:promise task) true))
           (deliver (:promise task) false)))
 
-      (defmethod signal-handler ::schedule-interval [[_ task]]
+      (defmethod signal-handler ::schedule [[_ task]]
+        (if (pq/find-by-id @task-queue (:id task))
+          (swap! task-queue pq/update-by-id (:id task) #(constantly task))
+          (swap! task-queue pq/insert (assoc task :scheduled-at (+ (System/currentTimeMillis)
+                                                                   (:timeout task))))))
+
+      (defmethod signal-handler ::schedule-new-interval [[_ task]]
         (if-let [new-task-queue (pq/insert @task-queue (assoc task :scheduled-at (+ (System/currentTimeMillis)
                                                                                     (:interval task))
                                                                    :interval? true))]
           (do (reset! task-queue new-task-queue)
               (deliver (:promise task) true))
           (deliver (:promise task) false)))
+
+      (defmethod signal-handler ::schedule-interval [[_ task]]
+        (let [task (assoc task :scheduled-at (+ (System/currentTimeMillis)
+                                                (:interval task))
+                               :interval? true)]
+          (if (pq/find-by-id @task-queue (:id task))
+            (swap! task-queue pq/update-by-id (:id task) #(constantly task))
+            (swap! task-queue pq/insert task))))
 
       (defmethod signal-handler ::cancel [[_ [id p]]]
         (if-let [[new-task-queue _] (pq/remove-by-id @task-queue id)]
@@ -103,8 +114,22 @@
                           (recur))))))
               (finally
                 (close-chans!))))
-      {:stop-fn              stop-fn
-       :schedule-fn          schedule-fn
-       :schedule-interval-fn schedule-interval-fn
-       :wait-fn              wait-fn
-       :cancel-schedule-fn   cancel-schedule-fn})))
+      (reify
+        IScheduler
+        (wait-for-tasks [this]
+          (a/put! signal-channel [::wait])
+          (a/<!! wait-channel))
+        (stop [this]
+          (a/put! signal-channel [::stop]))
+        (schedule [this id f timeout-millis]
+          (a/put! signal-channel [::schedule {:id id :f f :timeout timeout-millis}]))
+        (schedule-new [this id f timeout-millis]
+          (promising-put ::schedule-new {:id id :f f :timeout timeout-millis}))
+        (schedule-interval [this id f interval-millis]
+          (a/put! signal-channel [::schedule-interval {:id id :f f :interval interval-millis}]))
+        (schedule-new-interval [this id f interval-millis]
+          (promising-put ::schedule-new-interval {:id id :f f :interval interval-millis}))
+        (cancel-schedule [this id]
+          (let [p (promise)]
+            (a/put! signal-channel [::cancel [id p]])
+            p))))))
