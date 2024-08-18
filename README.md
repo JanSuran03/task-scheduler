@@ -1,4 +1,7 @@
-# task-scheduler
+[![Build Status](https://github.com/JanSuran03/task-scheduler/actions/workflows/clojure.yml/badge.svg)](https://github.com/JanSuran03/task-scheduler/actions)
+
+
+Task-scheduler
 
 A Clojure library designed for asynchronous scheduling of tasks
 

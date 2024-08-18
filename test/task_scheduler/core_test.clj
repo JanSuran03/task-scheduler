@@ -6,4 +6,7 @@
                    task-scheduler.scheduler]]
     (doseq [test-ns test-nss]
       (require test-ns))
-    (apply run-tests test-nss)))
+    (let [result (apply run-tests test-nss)]
+      (if (successful? result)
+        (System/exit 0)
+        (System/exit 1)))))
