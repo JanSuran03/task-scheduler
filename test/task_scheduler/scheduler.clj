@@ -75,3 +75,12 @@
     (is (= results [false true false]))
     (is (= (deref p 100 ::none) ::none))
     (scheduler/stop scheduler)))
+
+(deftest exec-fn
+  (let [data (atom [])
+        scheduler (scheduler/create-scheduler {:exec-fn (fn [x] (swap! data conj x))})
+        xs [300 600 200 400 500 100 700 900 800]]
+    (doseq [x xs]
+      (scheduler/schedule scheduler x x x))
+    (scheduler/wait-for-tasks scheduler)
+    (is (= @data (sort xs)))))
