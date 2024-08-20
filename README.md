@@ -1,4 +1,5 @@
 [![Build Status](https://github.com/JanSuran03/task-scheduler/actions/workflows/clojure.yml/badge.svg)](https://github.com/JanSuran03/task-scheduler/actions)
+[![Clojars Project](https://img.shields.io/clojars/v/org.clojars.jansuran03/task-scheduler.svg)](https://clojars.org/org.clojars.jansuran03/task-scheduler)
 
 Task-scheduler
 
