@@ -1,3 +1,5 @@
 /target
 .nrepl-port
 /.idea
+pom.xml
+pom.xml.asc
