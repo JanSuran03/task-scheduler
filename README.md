@@ -102,6 +102,18 @@ All operations, which might or might not have succeeded, return a promise with t
 => [false true false true false true true]
 ```
 
+Additionally, you can define your own task handler which MUST NOT BLOCK!
+```clojure
+; default:
+(scheduler/create-scheduler {:exec-fn #(clojure.core.async/go (%))})
+; other examples:
+(scheduler/create-scheduler {:exec-fn #(future (%))})
+(let [executor (SomeExecutor/create)]
+  (scheduler/create-scheduler {:exec-fn #(.execute executor %)}))
+```
+The default handler is ``,
+other examples might be `#(future (%))`
+
 ## License
 
 Copyright © 2024 Jan Šuráň

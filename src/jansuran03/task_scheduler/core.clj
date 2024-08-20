@@ -37,8 +37,9 @@
   "Creates an asynchronous scheduler, returning an object implementing the ISchedulerInterface.
 
   Opts:
-  - :exec-fn` - a function that is responsible for executing scheduled tasks, takes 1-argument, which is
-    the 0-argument function `f` to be executed via calling (exec-fn f)"
+  - :exec-fn` - a function that is responsible for executing scheduled tasks, takes 1-argument,
+    which is the 0-argument function `f` to be executed via calling (exec-fn f).
+    The function must not be blocking!! Examples: `#(a/go (%))`, `#(future-call (%))`"
   ([] (create-scheduler {}))
   ([{:keys [exec-fn]
      :or   {exec-fn (fn [f] (a/go (f)))}
