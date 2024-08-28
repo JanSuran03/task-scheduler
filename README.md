@@ -38,7 +38,8 @@ Hello after 1 second
 => true
 ```
 
-`wait-for-tasks` will also prevent scheduled tasks from being put back into the queue again.
+`wait-for-tasks` will prevent scheduled tasks from being put back into the queue again as well, but it will also wait for all tasks
+in the current queue to be executed naturally and to finish running (including those that were rescheduled and therefore re-queued).
 ```clojure
 (let [scheduler (scheduler/create-scheduler)]
   (scheduler/schedule-interval scheduler :task-1 #(println "Hello after 1 second") 1000)
@@ -60,6 +61,10 @@ waiting to finish for the ones that already started executing:
 Hello after 2.5 seconds
 => true
 ```
+
+Just to make it clear, `stop`, `wait-for-tasks` and `stop-and-wait` will all terminate the main scheduler loop which
+is also responsible for picking up messages from the message channel, and so you cannot schedule any tasks after
+calling these functions or call `stop` after `wait-for-tasks` etc.
 
 You can have guarantees about not scheduling multiple tasks with the same ID - these functions will also check,
 whether a task with that ID is scheduled, and discard it eventually. The functions without `"new"` schedule
@@ -103,7 +108,8 @@ All operations, which might or might not have succeeded, return a promise with t
 => [false true false true false true true]
 ```
 
-Additionally, you can define your own task handler which MUST NOT BLOCK!
+Additionally, you can define your own task handler which should execute the task asynchronously and return immediately 
+(blocking for a long time would block the scheduler main loop).
 ```clojure
 ; default:
 (scheduler/create-scheduler {:exec-fn #(clojure.core.async/go (%))})
@@ -112,8 +118,6 @@ Additionally, you can define your own task handler which MUST NOT BLOCK!
 (let [executor (SomeExecutor/create)]
   (scheduler/create-scheduler {:exec-fn #(.execute executor %)}))
 ```
-The default handler is ``,
-other examples might be `#(future (%))`
 
 ## License
 

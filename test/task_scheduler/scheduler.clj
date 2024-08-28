@@ -105,3 +105,22 @@
     (scheduler/wait-for-tasks scheduler)
     (is (= @data (sort timeouts)))
     (is (= @num-exec'd (* 2 (count timeouts))))))
+
+(deftest scheduler-exit-loop
+  (let [scheduler (scheduler/create-scheduler)
+        p (promise)]
+    (scheduler/stop scheduler)
+    (scheduler/schedule scheduler :foo #(deliver p 42) 50)
+    (is (identical? (deref p 100 ::none) ::none)))
+
+  (let [scheduler (scheduler/create-scheduler)
+        p (promise)]
+    (scheduler/wait-for-tasks scheduler)
+    (scheduler/schedule scheduler :foo #(deliver p 42) 50)
+    (is (identical? (deref p 100 ::none) ::none)))
+
+  (let [scheduler (scheduler/create-scheduler)
+        p (promise)]
+    (scheduler/stop-and-wait scheduler)
+    (scheduler/schedule scheduler :foo #(deliver p 42) 50)
+    (is (identical? (deref p 100 ::none) ::none))))
