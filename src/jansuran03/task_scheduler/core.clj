@@ -123,7 +123,7 @@
                  (if @wait-requested?
                    (do (reset! all-scheduled? true)
                        (release-pending-wait!))
-                   (let [[signal _] (a/alts! [(a/chan) signal-channel])]
+                   (let [signal (a/<! signal-channel)]
                      (when-not (identical? (signal-handler signal) ::break)
                        (recur))))
                  (let [delay-millis (- (:scheduled-at (pq/get-min @task-queue))
